@@ -25,11 +25,19 @@ OSGI_CONSOLE_PORT=$2
 
 TOOL="nc"
 
+list_service_pids() {
+	ps -eo pid=,command= | awk -v service="/$SERVICE_NAME" -v port="$OSGI_CONSOLE_PORT" '
+		/org\.eclipse\.equinox\.launcher\.Main/ {
+			if (index($0, service) || index($0, "-console " port)) print $1;
+		}
+	'
+}
+
 echo "Stopping cosbench $SERVICE_NAME ... "
 
-ps aux | grep eclipse | grep java | grep $OSGI_CONSOLE_PORT >> /dev/null
+pids=`list_service_pids`
 
-if [ $? -ne 0 ];
+if [ -z "$pids" ];
 then
         echo "No cosbench $SERVICE_NAME seems to be running."
         exit 0
@@ -37,16 +45,27 @@ fi
 
 which $TOOL 1>&2 >/dev/null
 if [ $? -eq 0 ]; then
-	echo "exit" | $TOOL 0.0.0.0 $OSGI_CONSOLE_PORT >> /dev/null
+	printf "exit\n" | $TOOL 127.0.0.1 $OSGI_CONSOLE_PORT >> /dev/null 2>&1 || true
 else
-	pid=`ps -eo pid,cmd |grep java |grep $SERVICE_NAME |cut -d" " -f1`
-	kill $pid
+	kill $pids >> /dev/null 2>&1 || true
 fi
 
 sleep 3
+
+pids=`list_service_pids`
+if [ -n "$pids" ]; then
+	kill $pids >> /dev/null 2>&1 || true
+	sleep 3
+fi
+
+pids=`list_service_pids`
+if [ -n "$pids" ]; then
+	kill -9 $pids >> /dev/null 2>&1 || true
+	sleep 1
+fi
 	
-ps aux | grep eclipse | grep java | grep $OSGI_CONSOLE_PORT >> /dev/null
-if [ $? -eq 0 ]; then
+pids=`list_service_pids`
+if [ -n "$pids" ]; then
 	echo "Can't stop cosbench $SERVICE_NAME, please inspect the system to fix it!"
 	exit 1
 fi

@@ -19,8 +19,10 @@
 # COSBENCH DRIVER STOPPER
 #-------------------------------
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 SERVICE_NAME=driver
 
 OSGI_CONSOLE_PORT=18089
 
-sh cosbench-stop.sh $SERVICE_NAME $OSGI_CONSOLE_PORT
+sh "$SCRIPT_DIR/cosbench-stop.sh" $SERVICE_NAME $OSGI_CONSOLE_PORT

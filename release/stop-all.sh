@@ -15,8 +15,10 @@
 #limitations under the License.
 #
 
-sh stop-controller.sh
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+sh "$SCRIPT_DIR/stop-controller.sh"
 echo
 echo "======================================================"
 echo
-sh stop-driver.sh
+sh "$SCRIPT_DIR/stop-driver.sh"

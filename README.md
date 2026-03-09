@@ -37,6 +37,8 @@ Installation & Usage
 
 Please refer to "COSBenchUserGuide.pdf" for details.
 
+For a repository-level Chinese guide covering build, startup, test execution, result viewing, and Azure adaptor integration, please refer to "README.zh-CN.md".
+
 
 Adaptor Development
 -------------------

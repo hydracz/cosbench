@@ -37,7 +37,7 @@ public class TomcatRegister {
             StandardService.class.getName(), Service.class.getName(),
             MBeanRegistration.class.getName(), Lifecycle.class.getName() };
 
-    private ServiceRegistration<?> registration;
+        private ServiceRegistration registration;
 
     public TomcatRegister() {
         /* empty */

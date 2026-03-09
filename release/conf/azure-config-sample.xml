@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<workload name="azure-blob-sample" description="sample benchmark for Azure Blob Storage">
+
+  <!--
+    Compatibility sample.
+    Prefer the dedicated auth-specific samples instead:
+
+      - azure-config-storage-key-sample.xml
+      - azure-config-service-principal-sample.xml
+      - azure-config-managed-identity-sample.xml
+      - azure-config-azure-cli-sample.xml
+
+    Recommended usage: pass sensitive values by environment variables.
+
+    Storage key mode:
+      export COSBENCH_AZURE_ACCOUNT=<account>
+      export COSBENCH_AZURE_STORAGE_KEY=<storage-key>
+
+    Service principal mode:
+      export COSBENCH_AZURE_ACCOUNT=<account>
+      export AZURE_TENANT_ID=<tenant-id>
+      export AZURE_CLIENT_ID=<client-id>
+      export AZURE_CLIENT_SECRET=<client-secret>
+
+    Managed identity mode:
+      export COSBENCH_AZURE_ACCOUNT=<account>
+
+    Azure CLI cached login mode:
+      az login
+      export COSBENCH_AZURE_ACCOUNT=<account>
+
+    Optional overrides:
+      export COSBENCH_AZURE_ENDPOINT=https://<account>.blob.core.windows.net
+      export COSBENCH_AZURE_AAD_ENDPOINT=https://login.microsoftonline.com
+      export COSBENCH_AZURE_TOKEN_RESOURCE=https://storage.azure.com/
+  -->
+
+  <!-- Storage key authentication via environment variables -->
+  <!-- <storage type="azure" config="auth_type=storage-key" /> -->
+
+  <!-- Service principal authentication via environment variables -->
+  <!-- <storage type="azure" config="auth_type=service-principal" /> -->
+
+  <!-- Azure CLI cached login authentication -->
+  <!-- <storage type="azure" config="auth_type=azure-cli" /> -->
+
+  <!-- Managed identity authentication; account can also come from COSBENCH_AZURE_ACCOUNT -->
+  <storage type="azure" config="auth_type=managed-identity" />
+
+  <workflow>
+
+    <workstage name="init">
+      <work type="init" workers="1" config="cprefix=aztestqwer;containers=r(1,2)" />
+    </workstage>
+
+    <workstage name="prepare">
+      <work type="prepare" workers="1" config="cprefix=aztestqwer;containers=r(1,2);objects=r(1,10);sizes=c(64)KB" />
+    </workstage>
+
+    <workstage name="main">
+      <work name="main" workers="8" runtime="30">
+        <operation type="read" ratio="80" config="cprefix=aztestqwer;containers=u(1,2);objects=u(1,10)" />
+        <operation type="write" ratio="20" config="cprefix=aztestqwer;containers=u(1,2);objects=u(11,20);sizes=c(64)KB" />
+      </work>
+    </workstage>
+
+    <workstage name="cleanup">
+      <work type="cleanup" workers="1" config="cprefix=aztestqwer;containers=r(1,2);objects=r(1,20)" />
+    </workstage>
+
+    <workstage name="dispose">
+      <work type="dispose" workers="1" config="cprefix=aztestqwer;containers=r(1,2)" />
+    </workstage>
+
+  </workflow>
+
+</workload>

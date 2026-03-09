@@ -21,34 +21,127 @@
 
 SERVICE_NAME=$1
 
-BOOT_LOG=log/$SERVICE_NAME-boot.log
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+
+BOOT_LOG="$SCRIPT_DIR/log/$SERVICE_NAME-boot.log"
 
 OSGI_BUNDLES="$2"
 
 OSGI_CONSOLE_PORT=$3
 
-OSGI_CONFIG=conf/.$SERVICE_NAME
+OSGI_CONFIG="$SCRIPT_DIR/conf/.$SERVICE_NAME"
 
-TOMCAT_CONFIG=conf/$SERVICE_NAME-tomcat-server.xml
+TOMCAT_CONFIG="$SCRIPT_DIR/conf/$SERVICE_NAME-tomcat-server.xml"
+COSBENCH_USERS_CONFIG="$SCRIPT_DIR/conf/cosbench-users.xml"
+SERVICE_CONFIG="$SCRIPT_DIR/conf/$SERVICE_NAME.conf"
 
 TOOL="nc"
 TOOL_PARAMS="-i 0"
+STOP_SCRIPT="$SCRIPT_DIR/stop-$SERVICE_NAME.sh"
+JAVA_MAJOR=`java -version 2>&1 | awk -F[\".] '/version/ { if ($2 == "1") print $3; else print $2; exit }'`
+JVM_COMPAT_ARGS=""
+OSGI_BOOTDELEGATION="java.sql,java.sql.*,javax.security.auth,javax.security.auth.*,javax.security.cert,javax.security.cert.*,javax.security.sasl,javax.security.sasl.*"
+OSGI_SYSTEM_PACKAGES="java.sql,javax.crypto,javax.crypto.interfaces,javax.crypto.spec,javax.management,javax.management.loading,javax.management.modelmbean,javax.management.monitor,javax.management.openmbean,javax.management.relation,javax.management.remote,javax.management.timer,javax.naming,javax.naming.directory,javax.naming.event,javax.naming.ldap,javax.naming.spi,javax.net,javax.net.ssl,javax.security.auth,javax.security.auth.callback,javax.security.auth.login,javax.security.auth.spi,javax.security.auth.x500,javax.security.cert,javax.security.sasl,javax.sql,javax.swing,javax.swing.border,javax.swing.event,javax.swing.table,javax.swing.text,javax.swing.tree,javax.xml.parsers,javax.xml.transform,javax.xml.transform.dom,javax.xml.transform.sax,javax.xml.transform.stream,org.ietf.jgss,org.w3c.dom,org.xml.sax,org.xml.sax.ext,org.xml.sax.helpers"
+
+list_service_pids() {
+        ps -eo pid=,command= | awk -v service="/$SERVICE_NAME" -v port="$OSGI_CONSOLE_PORT" '
+                /org\.eclipse\.equinox\.launcher\.Main/ {
+                        if (index($0, service) || index($0, "-console " port)) print $1;
+                }
+        '
+}
+
+if [ "$JAVA_MAJOR" -ge 9 ] 2>/dev/null; then
+                JVM_COMPAT_ARGS="--add-modules=ALL-SYSTEM -Dosgi.compatibility.bootdelegation=true -Dosgi.parentClassloader=ext -Dorg.osgi.framework.bootdelegation=$OSGI_BOOTDELEGATION -Dorg.osgi.framework.system.packages.extra=$OSGI_SYSTEM_PACKAGES"
+fi
 
 #-------------------------------
+
+if [ -d "$SCRIPT_DIR/main" ] && [ -d "$SCRIPT_DIR/osgi" ]; then
+	MAIN_DIR="$SCRIPT_DIR/main"
+	OSGI_DIR="$SCRIPT_DIR/osgi"
+	LAYOUT_NAME="packaged"
+else
+	MAIN_DIR="$ROOT_DIR/dist/main"
+	OSGI_DIR="$ROOT_DIR/dist/osgi"
+	LAYOUT_NAME="source"
+fi
+
+RUNTIME_CONFIG_DIR="$SCRIPT_DIR/workspace/.runtime/$SERVICE_NAME"
+RUNTIME_CONFIG_FILE="$RUNTIME_CONFIG_DIR/config.ini"
+RUNTIME_TOMCAT_CONFIG_FILE="$RUNTIME_CONFIG_DIR/tomcat-server.xml"
 # MAIN
 #-------------------------------
 
-rm -f $BOOT_LOG
-mkdir -p log
+rm -f "$BOOT_LOG"
+mkdir -p "$SCRIPT_DIR/log"
 
-echo "Launching osgi framwork ... "
+rm -rf "$RUNTIME_CONFIG_DIR"
+mkdir -p "$RUNTIME_CONFIG_DIR"
 
-/usr/bin/nohup java -Dcosbench.tomcat.config=$TOMCAT_CONFIG -server -cp main/* org.eclipse.equinox.launcher.Main -configuration $OSGI_CONFIG -console $OSGI_CONSOLE_PORT 1> $BOOT_LOG 2>&1 &
+if [ ! -d "$MAIN_DIR" ]; then
+	echo "Runtime main directory does not exist: $MAIN_DIR"
+	exit 1
+fi
+
+if [ ! -d "$OSGI_DIR" ]; then
+	echo "Runtime OSGi directory does not exist: $OSGI_DIR"
+	exit 1
+fi
+
+if [ ! -f "$COSBENCH_USERS_CONFIG" ]; then
+        echo "Cosbench users config does not exist: $COSBENCH_USERS_CONFIG"
+        exit 1
+fi
+
+if [ ! -f "$SERVICE_CONFIG" ]; then
+	echo "Cosbench service config does not exist: $SERVICE_CONFIG"
+	exit 1
+fi
+
+running_pids=`list_service_pids`
+if [ -n "$running_pids" ]; then
+        echo "Cosbench $SERVICE_NAME is already running with PID(s): $running_pids"
+        echo "Stop it first with: $STOP_SCRIPT"
+        exit 1
+fi
+
+sed \
+        -e "s|^osgi.bundles=libs/|osgi.bundles=$OSGI_DIR/libs/|" \
+        -e "s|^libs/|$OSGI_DIR/libs/|" \
+        -e "s|^plugins/|$OSGI_DIR/plugins/|" \
+        -e "s|^osgi.framework=osgi/|osgi.framework=$OSGI_DIR/|" \
+	"$OSGI_CONFIG/config.ini" > "$RUNTIME_CONFIG_FILE"
+
+if ! grep -q '^org.osgi.framework.executionenvironment=' "$RUNTIME_CONFIG_FILE"; then
+	echo "org.osgi.framework.executionenvironment=J2SE-1.2,J2SE-1.3,J2SE-1.4,J2SE-1.5,J2SE-1.6,J2SE-1.7,J2SE-1.8,JavaSE-1.6,JavaSE-1.7,JavaSE-1.8,JavaSE-9,JavaSE-10,JavaSE-11" >> "$RUNTIME_CONFIG_FILE"
+fi
+
+if ! grep -q '^org.osgi.framework.bootdelegation=' "$RUNTIME_CONFIG_FILE"; then
+	echo "org.osgi.framework.bootdelegation=$OSGI_BOOTDELEGATION" >> "$RUNTIME_CONFIG_FILE"
+fi
+
+if ! grep -q '^org.osgi.framework.system.packages.extra=' "$RUNTIME_CONFIG_FILE"; then
+	echo "org.osgi.framework.system.packages.extra=$OSGI_SYSTEM_PACKAGES" >> "$RUNTIME_CONFIG_FILE"
+fi
+
+sed \
+        -e "s|pathname=\"\./conf/cosbench-users.xml\"|pathname=\"$COSBENCH_USERS_CONFIG\"|" \
+        -e "s|pathname=\"conf/cosbench-users.xml\"|pathname=\"$COSBENCH_USERS_CONFIG\"|" \
+        "$TOMCAT_CONFIG" > "$RUNTIME_TOMCAT_CONFIG_FILE"
+
+echo "Launching osgi framework ... "
+
+(
+	cd "$ROOT_DIR" || exit 1
+        exec /usr/bin/nohup java $JVM_COMPAT_ARGS -Dcosbench.tomcat.config="$RUNTIME_TOMCAT_CONFIG_FILE" -Dcosbench.web.cosbenchUsers="$COSBENCH_USERS_CONFIG" -Dcosbench.$SERVICE_NAME.config="$SERVICE_CONFIG" -Dcosbench.runtime.layout="$LAYOUT_NAME" -server -cp "$MAIN_DIR"/* org.eclipse.equinox.launcher.Main -configuration "$RUNTIME_CONFIG_DIR" -console $OSGI_CONSOLE_PORT
+) 1> "$BOOT_LOG" 2>&1 &
 
 if [ $? -ne 0 ];
 then
         echo "Error in launching osgi framework!"
-        cat $BOOT_LOG
+        cat "$BOOT_LOG"
         exit 1
 fi
 
@@ -66,7 +159,7 @@ if [ $? -ne 0 ]; then
 	attemps=60
 	while [ $attemps -gt 0 ]; do
 		attemps=`expr $attemps - 1`
-		echo -n "."
+                printf "."
 		sleep 1
 	done
 	succ=2
@@ -76,27 +169,28 @@ else
 
 for module in $OSGI_BUNDLES
 do
+        bundle_name=`echo "$module" | sed 's/_[-0-9.]*$//'`
         ready=0
         attempts=60
         while [ $ready -ne 1 ];
         do
-                echo "ss -s ACTIVE cosbench" | $TOOL $TOOL_PARAMS 0.0.0.0 $OSGI_CONSOLE_PORT | grep $module >> /dev/null
+                echo "ss -s ACTIVE cosbench" | $TOOL $TOOL_PARAMS 0.0.0.0 $OSGI_CONSOLE_PORT | grep "$bundle_name" >> /dev/null
                 if [ $? -ne 0 ];
                 then
                         attempts=`expr $attempts - 1`
                         if [ $attempts -eq 0 ];
                         then
                                 if [ $attempts -ne 60 ]; then echo ""; fi
-                                echo "Starting    $module    [ERROR]"
+                                echo "Starting    $bundle_name    [ERROR]"
                                 succ=0
                                 break
                         else
-                                echo -n "."
+                                printf "."
                                 sleep 1
                         fi
                 else
                         if [ $attempts -ne 60 ]; then echo ""; fi
-                        echo "Starting    $module    [OK]"
+                        echo "Starting    $bundle_name    [OK]"
                         ready=1
                 fi
         done
@@ -111,6 +205,6 @@ elif [ $succ -eq 1 ]; then
 	echo "Successfully started cosbench $SERVICE_NAME!"
 fi
 
-cat $BOOT_LOG
+cat "$BOOT_LOG"
 
 exit 0

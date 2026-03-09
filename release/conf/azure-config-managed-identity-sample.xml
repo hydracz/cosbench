@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<workload name="azure-blob-managed-identity-sample" description="sample benchmark for Azure Blob Storage with managed identity authentication">
+
+  <!--
+    Required environment variables:
+      export COSBENCH_AZURE_ACCOUNT=<account>
+
+    Optional overrides:
+      export MSI_ENDPOINT=<managed-identity-endpoint>
+      export MSI_SECRET=<managed-identity-secret>
+      export COSBENCH_AZURE_TOKEN_RESOURCE=https://storage.azure.com/
+
+    If you use a user-assigned managed identity, add:
+      clientid=<managed-identity-client-id>
+    into the storage config below.
+  -->
+
+  <storage type="azure" config="auth_type=managed-identity" />
+
+  <workflow>
+
+    <workstage name="init">
+      <work type="init" workers="1" config="cprefix=aztestqwer;containers=r(1,2)" />
+    </workstage>
+
+    <workstage name="prepare">
+      <work type="prepare" workers="1" config="cprefix=aztestqwer;containers=r(1,2);objects=r(1,10);sizes=c(64)KB" />
+    </workstage>
+
+    <workstage name="main">
+      <work name="main" workers="8" runtime="30">
+        <operation type="read" ratio="80" config="cprefix=aztestqwer;containers=u(1,2);objects=u(1,10)" />
+        <operation type="write" ratio="20" config="cprefix=aztestqwer;containers=u(1,2);objects=u(11,20);sizes=c(64)KB" />
+      </work>
+    </workstage>
+
+    <workstage name="cleanup">
+      <work type="cleanup" workers="1" config="cprefix=aztestqwer;containers=r(1,2);objects=r(1,20)" />
+    </workstage>
+
+    <workstage name="dispose">
+      <work type="dispose" workers="1" config="cprefix=aztestqwer;containers=r(1,2)" />
+    </workstage>
+
+  </workflow>
+
+</workload>

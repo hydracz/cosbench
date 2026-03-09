@@ -15,8 +15,10 @@
 #limitations under the License.
 #
 
-sh start-driver.sh
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+sh "$SCRIPT_DIR/start-driver.sh"
 echo
 echo "======================================================"
 echo
-sh start-controller.sh
+sh "$SCRIPT_DIR/start-controller.sh"

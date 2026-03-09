@@ -1,5 +1,18 @@
 *.class
 
+dev/**/bin/
+dev/cosbench-azure/.build/
+dist/osgi/plugins/cosbench-*.jar
+release/log/
+release/archive/
+release/workspace/.metadata/
+release/workspace/.generated/
+release/workspace/.runtime/
+archive/
+log/
+start
+stop
+
 # Package Files #
 /0.3.0.10
 /0.3.0.8
