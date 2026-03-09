@@ -37,10 +37,10 @@ COSBench 是一个基于 Java 和 OSGi 的对象存储压测工具，典型运�
 
 - 日常源码编译可使用较新的 JDK。
 - Azure 适配器目前编译为 Java 8 字节码。
-- 当前仓库这套启动脚本已经补齐 JDK 11 下旧版 Equinox 所需的兼容参数，Driver 和 Controller 都可以在 JDK 11 上启动。
+- 当前仓库这套启动脚本已经补齐旧版 Equinox 在 JDK 11 和 JDK 17 下所需的兼容参数，Driver 和 Controller 都可以启动。
 - 如果目标是长期稳定运行这套老运行时，Java 8 仍然是更保守的选择。
 
-当前在 JDK 11 下仍会看到旧版 Equinox 的 illegal reflective access 警告，但这不影响 Driver 和 Controller 启动成功。
+当前在较新的 JDK 上仍可能看到旧版 Equinox 的兼容性告警，但这不影响 Driver 和 Controller 启动成功。
 
 ## 4. 编译方式
 
@@ -580,10 +580,10 @@ cd release
 #### 第六步：JDK 选择建议
 
 - 如果你只是编译 Azure 插件、做最小化 bundle 校验，可以继续用 JDK 11。
-- 当前这套仓库脚本已经可以在 JDK 11 下启动完整的 Driver/Controller 链路。
+- 当前这套仓库脚本已经可以在 JDK 11 和 JDK 17 下启动完整的 Driver/Controller 链路。
 - 如果你要尽量贴近老版本的原始运行环境，或者准备做长期联调，JDK 8 仍然更稳妥。
 
-当前主要剩余差异是旧版 Equinox 在 JDK 11 下会打印 reflective access 警告，而不是启动失败。
+当前主要剩余差异是旧版 Equinox 在较新的 JDK 上仍可能打印 reflective access 一类兼容性告警，而不是启动失败。
 
 Storage key：
 
@@ -617,16 +617,16 @@ Azure CLI 缓存登录：
 - Azure bundle 可以在精简 OSGi 运行时中达到 `ACTIVE`。
 - Driver 所需插件集合可以从当前源码树导出并做齐全性检查。
 - Controller 所需插件集合也可以从当前源码树导出。
-- `./release/start-driver.sh` 可以在当前 JDK 11 环境下成功启动。
-- `./release/start-controller.sh` 可以在当前 JDK 11 环境下成功启动。
-- `./release/start-all.sh` 可以按顺序成功拉起 Driver 和 Controller。
+- `./release/start-driver.sh` 可以在当前 JDK 11 和 JDK 17 环境下成功启动。
+- `./release/start-controller.sh` 可以在当前 JDK 11 和 JDK 17 环境下成功启动。
+- `./release/start-all.sh` 可以按顺序成功拉起 Driver 和 Controller，并在启动完成后正常返回。
 
 当前仍需注意：
 
-- 在 JDK 11 上仍会出现旧版 Equinox 的 illegal reflective access 警告。
+- 在 JDK 11 或 JDK 17 上仍可能出现旧版 Equinox 的 reflective access 兼容性告警。
 - 如果要做长期稳定联调，Java 8 仍然是更保守的运行环境。
 
-如果你的目标只是开发 Azure 适配器、编译插件、运行当前仓库里的 Driver/Controller 启动脚本，那么 JDK 11 可以直接继续使用；如果你的目标是尽量贴近历史生产环境并减少兼容性告警，建议准备 Java 8 作为最终联调环境。
+如果你的目标只是开发 Azure 适配器、编译插件、运行当前仓库里的 Driver/Controller 启动脚本，那么 JDK 11 或 JDK 17 都可以直接继续使用；如果你的目标是尽量贴近历史生产环境并减少兼容性告警，建议准备 Java 8 作为最终联调环境。
 
 ## 12. 推荐使用流程
 

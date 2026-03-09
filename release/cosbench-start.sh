@@ -38,9 +38,11 @@ SERVICE_CONFIG="$SCRIPT_DIR/conf/$SERVICE_NAME.conf"
 
 TOOL="nc"
 TOOL_PARAMS="-i 0"
+TOOL_TIMEOUT=""
 STOP_SCRIPT="$SCRIPT_DIR/stop-$SERVICE_NAME.sh"
 JAVA_MAJOR=`java -version 2>&1 | awk -F[\".] '/version/ { if ($2 == "1") print $3; else print $2; exit }'`
 JVM_COMPAT_ARGS=""
+JVM_ADD_OPENS_ARGS=""
 OSGI_BOOTDELEGATION="java.sql,java.sql.*,javax.security.auth,javax.security.auth.*,javax.security.cert,javax.security.cert.*,javax.security.sasl,javax.security.sasl.*"
 OSGI_SYSTEM_PACKAGES="java.sql,javax.crypto,javax.crypto.interfaces,javax.crypto.spec,javax.management,javax.management.loading,javax.management.modelmbean,javax.management.monitor,javax.management.openmbean,javax.management.relation,javax.management.remote,javax.management.timer,javax.naming,javax.naming.directory,javax.naming.event,javax.naming.ldap,javax.naming.spi,javax.net,javax.net.ssl,javax.security.auth,javax.security.auth.callback,javax.security.auth.login,javax.security.auth.spi,javax.security.auth.x500,javax.security.cert,javax.security.sasl,javax.sql,javax.swing,javax.swing.border,javax.swing.event,javax.swing.table,javax.swing.text,javax.swing.tree,javax.xml.parsers,javax.xml.transform,javax.xml.transform.dom,javax.xml.transform.sax,javax.xml.transform.stream,org.ietf.jgss,org.w3c.dom,org.xml.sax,org.xml.sax.ext,org.xml.sax.helpers"
 
@@ -54,6 +56,14 @@ list_service_pids() {
 
 if [ "$JAVA_MAJOR" -ge 9 ] 2>/dev/null; then
                 JVM_COMPAT_ARGS="--add-modules=ALL-SYSTEM -Dosgi.compatibility.bootdelegation=true -Dosgi.parentClassloader=ext -Dorg.osgi.framework.bootdelegation=$OSGI_BOOTDELEGATION -Dorg.osgi.framework.system.packages.extra=$OSGI_SYSTEM_PACKAGES"
+fi
+
+if [ "$JAVA_MAJOR" -ge 17 ] 2>/dev/null; then
+	JVM_ADD_OPENS_ARGS="--add-opens=java.base/java.net=ALL-UNNAMED"
+fi
+
+if command -v timeout >/dev/null 2>&1; then
+        TOOL_TIMEOUT="timeout 5"
 fi
 
 #-------------------------------
@@ -135,7 +145,7 @@ echo "Launching osgi framework ... "
 
 (
 	cd "$ROOT_DIR" || exit 1
-        exec /usr/bin/nohup java $JVM_COMPAT_ARGS -Dcosbench.tomcat.config="$RUNTIME_TOMCAT_CONFIG_FILE" -Dcosbench.web.cosbenchUsers="$COSBENCH_USERS_CONFIG" -Dcosbench.$SERVICE_NAME.config="$SERVICE_CONFIG" -Dcosbench.runtime.layout="$LAYOUT_NAME" -server -cp "$MAIN_DIR"/* org.eclipse.equinox.launcher.Main -configuration "$RUNTIME_CONFIG_DIR" -console $OSGI_CONSOLE_PORT
+        exec /usr/bin/nohup java $JVM_COMPAT_ARGS $JVM_ADD_OPENS_ARGS -Dcosbench.tomcat.config="$RUNTIME_TOMCAT_CONFIG_FILE" -Dcosbench.web.cosbenchUsers="$COSBENCH_USERS_CONFIG" -Dcosbench.$SERVICE_NAME.config="$SERVICE_CONFIG" -Dcosbench.runtime.layout="$LAYOUT_NAME" -server -cp "$MAIN_DIR"/* org.eclipse.equinox.launcher.Main -configuration "$RUNTIME_CONFIG_DIR" -console $OSGI_CONSOLE_PORT
 ) 1> "$BOOT_LOG" 2>&1 &
 
 if [ $? -ne 0 ];
@@ -174,7 +184,7 @@ do
         attempts=60
         while [ $ready -ne 1 ];
         do
-                echo "ss -s ACTIVE cosbench" | $TOOL $TOOL_PARAMS 0.0.0.0 $OSGI_CONSOLE_PORT | grep "$bundle_name" >> /dev/null
+		printf 'ss\n' | $TOOL_TIMEOUT $TOOL $TOOL_PARAMS 0.0.0.0 $OSGI_CONSOLE_PORT 2>/dev/null | grep "$bundle_name" >> /dev/null
                 if [ $? -ne 0 ];
                 then
                         attempts=`expr $attempts - 1`
