@@ -244,6 +244,17 @@ http://127.0.0.1:19088/controller
 http://127.0.0.1:19088/controller/index.html
 ```
 
+默认登录账号为：
+
+- 用户名：`anonymous`
+- 密码：`cosbench`
+
+注意：
+
+- `j_security_check` 只是 Tomcat FORM 登录提交端点，不是可直接访问的登录页面。
+- 如果直接访问它，常见现象是返回 408，表现为“无法登录”。
+- 正确入口应当是 `http://127.0.0.1:19088/controller/index.html`。
+
 ### 6.3 同时启动
 
 ```bash
@@ -256,6 +267,14 @@ http://127.0.0.1:19088/controller/index.html
 
 - `http://127.0.0.1:18088/driver/index.html`
 - `http://127.0.0.1:19088/controller/index.html`
+
+在 macOS/Linux 上，也可以直接执行：
+
+```bash
+./release/web.sh
+```
+
+它会打开 Controller 首页，并提示默认账号 `anonymous / cosbench`。
 
 ### 6.4 停止服务
 

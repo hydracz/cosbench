@@ -215,6 +215,18 @@ elif [ $succ -eq 1 ]; then
 	echo "Successfully started cosbench $SERVICE_NAME!"
 fi
 
+if [ "$SERVICE_NAME" = "controller" ]; then
+        DEFAULT_USERNAME=`sed -n 's/.*<user username="\([^"]*\)" password="\([^"]*\)".*/\1/p' "$COSBENCH_USERS_CONFIG" | head -n 1`
+        DEFAULT_PASSWORD=`sed -n 's/.*<user username="\([^"]*\)" password="\([^"]*\)".*/\2/p' "$COSBENCH_USERS_CONFIG" | head -n 1`
+        echo "Controller Web Console: http://127.0.0.1:19088/controller/index.html"
+        if [ -n "$DEFAULT_USERNAME" ] && [ -n "$DEFAULT_PASSWORD" ]; then
+                echo "Default login: $DEFAULT_USERNAME / $DEFAULT_PASSWORD"
+        fi
+        echo "Use index.html as the entry page; j_security_check is only the FORM login submit endpoint."
+elif [ "$SERVICE_NAME" = "driver" ]; then
+        echo "Driver Web Console: http://127.0.0.1:18088/driver/index.html"
+fi
+
 cat "$BOOT_LOG"
 
 exit 0

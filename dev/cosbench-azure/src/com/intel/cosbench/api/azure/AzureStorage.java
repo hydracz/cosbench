@@ -91,6 +91,7 @@ import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
@@ -690,7 +691,23 @@ public class AzureStorage extends NoneStorage {
 
 	private String headerValue(HttpRequestBase request, String name) {
 		Header header = request.getFirstHeader(name);
-		return header == null ? "" : header.getValue();
+		if (header != null) {
+			return header.getValue();
+		}
+
+		if (request instanceof HttpEntityEnclosingRequestBase) {
+			HttpEntity entity = ((HttpEntityEnclosingRequestBase) request).getEntity();
+			if (entity != null) {
+				if ("Content-Type".equalsIgnoreCase(name) && entity.getContentType() != null) {
+					return entity.getContentType().getValue();
+				}
+				if ("Content-Encoding".equalsIgnoreCase(name) && entity.getContentEncoding() != null) {
+					return entity.getContentEncoding().getValue();
+				}
+			}
+		}
+
+		return "";
 	}
 
 	private String normalizeHeaderValue(String value) {
