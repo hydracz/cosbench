@@ -129,15 +129,20 @@ abstract class AbstractOperator implements Operator {
     		}
     }
     public static void isUnauthorizedException(Exception e, Session session) {
-    	if(e != null && e.getMessage() != null)
-    		try{
-    			if(401 == Integer.valueOf(e.getMessage().substring(9, 12))){
-    				session.getApi().setAuthFlag(false);
-    				LOGGER.debug("catch 401 error from storage backend, set auth flag to false");
-    			}
-    		}catch(NumberFormatException ne) {
-    			ne.printStackTrace();// mask ignore
+    	if (e == null || e.getMessage() == null)
+    		return;
+    	String msg = e.getMessage();
+    	if (msg.length() < 12)
+    		return;
+    	String code = msg.substring(9, 12);
+    	try {
+    		if (401 == Integer.parseInt(code)) {
+    			session.getApi().setAuthFlag(false);
+    			LOGGER.debug("catch 401 error from storage backend, set auth flag to false");
     		}
+    	} catch (NumberFormatException ne) {
+    		// non-HTTP exception message (e.g. SocketException), safe to ignore
+    	}
     }
 
 }

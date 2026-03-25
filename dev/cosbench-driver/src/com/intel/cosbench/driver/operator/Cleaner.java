@@ -164,16 +164,19 @@ class Cleaner extends AbstractOperator {
     }
     
     private static boolean isConflictException(Session session, Exception e) {
-    	if(e != null && e.getMessage() != null)
-    		try{
-    			if(409 == Integer.valueOf(e.getMessage().substring(9, 12))){
-    				doLogDebug(session.getLogger(),"catch 409 error, will clean up the unempty container and try again");
-    				return true;
-    			}
-    		}catch(NumberFormatException ne) {
-    			ne.printStackTrace(); // mask ignore
-    			return false;
+    	if (e == null || e.getMessage() == null)
+    		return false;
+    	String msg = e.getMessage();
+    	if (msg.length() < 12)
+    		return false;
+    	try {
+    		if (409 == Integer.parseInt(msg.substring(9, 12))) {
+    			doLogDebug(session.getLogger(), "catch 409 error, will clean up the unempty container and try again");
+    			return true;
     		}
+    	} catch (NumberFormatException ne) {
+    		// non-HTTP exception message, safe to ignore
+    	}
     	return false;
     }
 
