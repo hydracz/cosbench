@@ -92,7 +92,7 @@ public class ErrorStatistics {
 			if (e != null)
 				message = e.getMessage();
 			stackTraceAndMessage.put(entry.getKey(), message);
-			if (message != null)
+			if (message != null && message.length() >= 12)
 				code = message.substring(9, 12);
 			if(!isInteger(code))
 				code = "N/A";
