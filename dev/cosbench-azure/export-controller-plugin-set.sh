@@ -115,6 +115,7 @@ for module in $modules; do
 
   rm -f "$output_jar"
   jar cfm "$output_jar" "$manifest_file" -C "$temp_dir" . >/dev/null
+  ln -sfn "$(basename "$output_jar")" "$PLUGINS_DIR/$module"
   echo "Created $output_jar"
 done
 
