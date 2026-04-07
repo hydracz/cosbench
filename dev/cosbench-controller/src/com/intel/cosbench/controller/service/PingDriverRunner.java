@@ -17,13 +17,26 @@ limitations under the License.
 
 package com.intel.cosbench.controller.service;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.URI;
+import java.net.URISyntaxException;
 
 import com.intel.cosbench.model.DriverInfo;
 
 public class PingDriverRunner implements Runnable{
+
+	private static final int DEFAULT_DRIVER_PORT = 18088;
+
+	private static class DriverEndpoint {
+		private final String host;
+		private final int port;
+
+		private DriverEndpoint(String host, int port) {
+			this.host = host;
+			this.port = port;
+		}
+	}
 
 	private int interval = 5000;
 	private DriverInfo[] driverInfos;
@@ -46,16 +59,17 @@ public class PingDriverRunner implements Runnable{
 	private void pingDrivers(DriverInfo[] driverInfos) {
 		for (DriverInfo driver : driverInfos) {
 			boolean isAlive = false;
-			
-			String ipAddress = getIpAddres(driver.getUrl());
+
+			DriverEndpoint endpoint = parseDriverEndpoint(driver.getUrl());
 			try {
-				if (!ipAddress.isEmpty()) {	
+				if (endpoint != null) {
 					try{
 						Socket socket = new Socket();
-						InetSocketAddress reAddress = new InetSocketAddress(ipAddress, 18088);
+						InetSocketAddress reAddress = new InetSocketAddress(endpoint.host, endpoint.port);
 						InetSocketAddress locAddress = new InetSocketAddress("127.0.0.1", 0);
 						socket.bind(locAddress);
 						socket.connect(reAddress,3000);
+						socket.close();
 						isAlive = true;
 						}catch(Exception e){
 							isAlive = false;
@@ -67,10 +81,25 @@ public class PingDriverRunner implements Runnable{
 		}
 	}
 	
-	private String getIpAddres(String url) {
-		int start = url.indexOf('/') + 2;
-		int end = url.lastIndexOf(':');		
-		return end > start ? url.substring(start, end) : null;
+	private DriverEndpoint parseDriverEndpoint(String url) {
+		if (url == null || url.trim().isEmpty()) {
+			return null;
+		}
+
+		try {
+			URI uri = new URI(url.trim());
+			String host = uri.getHost();
+			if (host == null || host.length() == 0) {
+				return null;
+			}
+			int port = uri.getPort();
+			if (port <= 0) {
+				port = DEFAULT_DRIVER_PORT;
+			}
+			return new DriverEndpoint(host, port);
+		} catch (URISyntaxException e) {
+			return null;
+		}
 	}
 	
 }
