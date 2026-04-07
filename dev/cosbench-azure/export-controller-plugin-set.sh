@@ -27,6 +27,19 @@ LIB_CP="${LIB_CP}$ROOT_DIR/dist/osgi/org.eclipse.osgi-3.7.0.v20110613.jar"
 compiled_modules=""
 skipped_modules=""
 
+link_plugin_alias() {
+  local module="$1"
+  local candidate=""
+
+  candidate=$(find "$PLUGINS_DIR" -maxdepth 1 -type f -name "${module}_*.jar" | sort | tail -n 1)
+  if [ -z "$candidate" ]; then
+    echo "Skipping alias for $module because no versioned plugin jar exists" >&2
+    return 1
+  fi
+
+  ln -sfn "$(basename "$candidate")" "$PLUGINS_DIR/$module"
+}
+
 echo "Compiling controller plugin sources by module"
 for module in $modules; do
   module_dir="$ROOT_DIR/dev/$module"
@@ -115,8 +128,12 @@ for module in $modules; do
 
   rm -f "$output_jar"
   jar cfm "$output_jar" "$manifest_file" -C "$temp_dir" . >/dev/null
-  ln -sfn "$(basename "$output_jar")" "$PLUGINS_DIR/$module"
+  link_plugin_alias "$module"
   echo "Created $output_jar"
+done
+
+for module in $modules; do
+  link_plugin_alias "$module" || true
 done
 
 echo "Controller plugin export complete"
