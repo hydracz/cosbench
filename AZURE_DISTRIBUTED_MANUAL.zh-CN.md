@@ -1,6 +1,6 @@
 # Azure Blob 分布式手动运行指南
 
-本文档面向当前仓库这套 Azure Blob 自定义适配器和当前 Azure VMSS 环境，描述如何不依赖 `azure-blob-cosbench-test/10-run-local.sh`，直接在 controller 和 driver 节点上手工启动 COSBench、提交吞吐与 IOPS 两类测试、检查运行状态与日志。
+本文档面向当前仓库这套 Azure Blob 自定义适配器和当前 Azure VMSS 环境，描述如何完成 controller/driver 的一次性环境准备，以及在环境正常后只做状态检查和手工提交新 workload。
 
 适用前提：
 
@@ -11,6 +11,14 @@
   - controller VMSS: `vmss-vivo-cosbench-ctl-eu`
   - driver VMSS: `vmss-vivo-cosbench-drv-eu`
   - benchmark storage account: `vivocbblobbench001`
+
+  当前推荐流程：
+
+  1. 用 `azure-blob-cosbench-test/10-run-local.sh prepare <env>` 完成 controller + driver 的环境准备。
+  2. 后续用 `azure-blob-cosbench-test/10-run-local.sh status <env>` 做健康检查。
+  3. 状态正常后，用 `azure-blob-cosbench-test/10-run-local.sh submit --template <case> <env>` 把新的 workload 交给 controller 提交。
+
+  只有在你需要排查底层服务时，才需要回到本文档后面的 controller/driver 手工命令。
 
 ## 1. 在所有节点准备源码和插件
 
@@ -110,18 +118,22 @@ mapfile -t driver_ips < <(
 
 ### 2.3 Workload 配置
 
-本仓库新增了两个手工运行模板：
+当前推荐的 6 个手工 case 位于 `azure-blob-cosbench-test/templates/`：
 
-- `release/workloads/azure-blob-throughput-256k-distributed.xml`
-- `release/workloads/azure-blob-iops-4k-distributed.xml`
+- `01-4k-read-100.xml`
+- `02-4k-write-100.xml`
+- `03-256k-read-100.xml`
+- `04-256k-write-100.xml`
+- `05-1m-read-100.xml`
+- `06-1m-write-100.xml`
 
-两者都默认使用：
+这些模板都默认使用：
 
 ```xml
 <storage type="azure" config="auth_type=managed-identity" />
 ```
 
-提交前请把 `__CPREFIX__` 替换成唯一前缀，避免多次运行命中同一批容器和对象。
+提交前请把 `__CPREFIX__` 替换成唯一前缀，避免多次运行命中同一批容器和对象。`10-run-local.sh submit` 会自动完成这个替换并把模板上传给 controller。
 
 ## 3. 启动 Driver 和 Controller
 
@@ -161,23 +173,46 @@ ss -ltnp | grep 19088
 
 如果 `cli.sh info` 能列出所有 driver，就说明 controller 已经能够访问 driver。
 
-## 4. 手工提交带宽测试
+## 4. 推荐提交流程
 
-在 controller 节点执行：
+当前推荐直接在本地工作目录执行 submit，由脚本先做健康检查，再把模板上传给 controller 提交：
+
+```bash
+cd azure-blob-cosbench-test
+bash 10-run-local.sh status cz-dev
+bash 10-run-local.sh submit --template 01-4k-read-100 cz-dev
+```
+
+其余 5 个 case 依次替换为：
+
+- `02-4k-write-100`
+- `03-256k-read-100`
+- `04-256k-write-100`
+- `05-1m-read-100`
+- `06-1m-write-100`
+
+成功时本地脚本会返回：
+
+```text
+workload submitted: wN
+view from windows client: http://<controller-private-ip>:19088/controller/workload.html?id=wN
+```
+
+## 5. 如需在 controller 本机直接提交
+
+如果你明确需要在 controller 节点直接执行 COSBench CLI，可以沿用同样的 XML 内容，先把目标模板复制到 controller，再执行：
 
 ```bash
 cd /opt/cosbench-src
 export COSBENCH_AZURE_ACCOUNT=vivocbblobbench001
 
-run_tag=azbw001
-sed "s/__CPREFIX__/$run_tag/g" \
-  release/workloads/azure-blob-throughput-256k-distributed.xml \
-  > /tmp/${run_tag}-throughput.xml
+run_tag=azmanual001
+sed "s/__CPREFIX__/$run_tag/g" /path/to/01-4k-read-100.xml > /tmp/${run_tag}.xml
 
 ./submit-azure-workload.sh \
   --auth-type managed-identity \
   --account "$COSBENCH_AZURE_ACCOUNT" \
-  --template /tmp/${run_tag}-throughput.xml \
+  --template /tmp/${run_tag}.xml \
   --controller anonymous:cosbench@127.0.0.1:19088
 ```
 
@@ -185,26 +220,6 @@ sed "s/__CPREFIX__/$run_tag/g" \
 
 ```text
 Accepted with ID: wN
-```
-
-## 5. 手工提交 IOPS 测试
-
-在 controller 节点执行：
-
-```bash
-cd /opt/cosbench-src
-export COSBENCH_AZURE_ACCOUNT=vivocbblobbench001
-
-run_tag=aziops001
-sed "s/__CPREFIX__/$run_tag/g" \
-  release/workloads/azure-blob-iops-4k-distributed.xml \
-  > /tmp/${run_tag}-iops.xml
-
-./submit-azure-workload.sh \
-  --auth-type managed-identity \
-  --account "$COSBENCH_AZURE_ACCOUNT" \
-  --template /tmp/${run_tag}-iops.xml \
-  --controller anonymous:cosbench@127.0.0.1:19088
 ```
 
 ## 6. 查看运行状态
