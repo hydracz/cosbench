@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<workload name="azure-blob-throughput-256k-distributed" description="distributed Azure Blob throughput benchmark with 256KB mixed IO">
+
+  <!--
+    Replace __CPREFIX__ before submit, for example:
+      run_tag=azbw001
+      sed "s/__CPREFIX__/$run_tag/g" release/workloads/azure-blob-throughput-256k-distributed.xml > /tmp/$run_tag-throughput.xml
+  -->
+
+  <storage type="azure" config="auth_type=managed-identity" />
+
+  <workflow>
+
+    <workstage name="init">
+      <work type="init" workers="2" config="cprefix=__CPREFIX__;containers=r(1,8)" />
+    </workstage>
+
+    <workstage name="prepare">
+      <work type="prepare" workers="8" config="cprefix=__CPREFIX__;containers=r(1,8);objects=r(1,4096);sizes=c(256)KB" />
+    </workstage>
+
+    <workstage name="main">
+      <work name="main" workers="64" runtime="300">
+        <operation type="read" ratio="50" config="cprefix=__CPREFIX__;containers=u(1,8);objects=u(1,4096)" />
+        <operation type="write" ratio="50" config="cprefix=__CPREFIX__;containers=u(1,8);objects=u(4097,8192);sizes=c(256)KB" />
+      </work>
+    </workstage>
+
+    <workstage name="cleanup">
+      <work type="cleanup" workers="8" config="cprefix=__CPREFIX__;containers=r(1,8);objects=r(1,8192)" />
+    </workstage>
+
+    <workstage name="dispose">
+      <work type="dispose" workers="2" config="cprefix=__CPREFIX__;containers=r(1,8)" />
+    </workstage>
+
+  </workflow>
+
+</workload>

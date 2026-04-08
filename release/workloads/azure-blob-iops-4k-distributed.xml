@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<workload name="azure-blob-iops-4k-distributed" description="distributed Azure Blob IOPS benchmark with 4KB mixed IO">
+
+  <!--
+    Replace __CPREFIX__ before submit, for example:
+      run_tag=aziops001
+      sed "s/__CPREFIX__/$run_tag/g" release/workloads/azure-blob-iops-4k-distributed.xml > /tmp/$run_tag-iops.xml
+  -->
+
+  <storage type="azure" config="auth_type=managed-identity" />
+
+  <workflow>
+
+    <workstage name="init">
+      <work type="init" workers="2" config="cprefix=__CPREFIX__;containers=r(1,8)" />
+    </workstage>
+
+    <workstage name="prepare">
+      <work type="prepare" workers="16" config="cprefix=__CPREFIX__;containers=r(1,8);objects=r(1,16384);sizes=c(4)KB" />
+    </workstage>
+
+    <workstage name="main">
+      <work name="main" workers="128" runtime="240">
+        <operation type="read" ratio="70" config="cprefix=__CPREFIX__;containers=u(1,8);objects=u(1,16384)" />
+        <operation type="write" ratio="30" config="cprefix=__CPREFIX__;containers=u(1,8);objects=u(16385,32768);sizes=c(4)KB" />
+      </work>
+    </workstage>
+
+    <workstage name="cleanup">
+      <work type="cleanup" workers="16" config="cprefix=__CPREFIX__;containers=r(1,8);objects=r(1,32768)" />
+    </workstage>
+
+    <workstage name="dispose">
+      <work type="dispose" workers="2" config="cprefix=__CPREFIX__;containers=r(1,8)" />
+    </workstage>
+
+  </workflow>
+
+</workload>

@@ -2,6 +2,8 @@
 
 本文档面向当前仓库源码使用场景，覆盖开发环境、编译方式、启动方式、压测提交、结果查看，以及 Azure Blob 自定义适配器的接入说明。
 
+如果你的目标是在 Azure 上手工拉起一个 controller 加多个 driver，并分别提交带宽与 IOPS 两类测试，请直接看 `AZURE_DISTRIBUTED_MANUAL.zh-CN.md`。
+
 ## 1. 项目定位
 
 COSBench 是一个基于 Java 和 OSGi 的对象存储压测工具，典型运行形态分为两个角色：
