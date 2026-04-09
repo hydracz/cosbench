@@ -63,19 +63,17 @@ public class PingDriverRunner implements Runnable{
 			DriverEndpoint endpoint = parseDriverEndpoint(driver.getUrl());
 			try {
 				if (endpoint != null) {
-					try{
-						Socket socket = new Socket();
+					try {
 						InetSocketAddress reAddress = new InetSocketAddress(endpoint.host, endpoint.port);
-						InetSocketAddress locAddress = new InetSocketAddress("127.0.0.1", 0);
-						socket.bind(locAddress);
-						socket.connect(reAddress,3000);
+						Socket socket = new Socket();
+						socket.connect(reAddress, 3000);
 						socket.close();
 						isAlive = true;
-						}catch(Exception e){
+					} catch (Exception e) {
 							isAlive = false;
 						}
 				}
-			}finally{
+			} finally {
 				driver.setAliveState(isAlive);
 			}
 		}
