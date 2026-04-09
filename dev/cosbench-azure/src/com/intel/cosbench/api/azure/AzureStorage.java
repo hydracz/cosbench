@@ -64,6 +64,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -77,6 +78,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -112,6 +114,11 @@ public class AzureStorage extends NoneStorage {
 	private static final Pattern JSON_STRING_PATTERN = Pattern.compile("\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"");
 	private static final long TOKEN_REFRESH_SKEW_MILLIS = 60000L;
 	private static final long AZ_CLI_TIMEOUT_MILLIS = 30000L;
+	private static final int TOKEN_REQUEST_MAX_ATTEMPTS = 5;
+	private static final long TOKEN_RETRY_BASE_DELAY_MILLIS = 200L;
+	private static final long TOKEN_RETRY_MAX_DELAY_MILLIS = 5000L;
+	private static final Map<String, AccessToken> SHARED_TOKEN_CACHE = new ConcurrentHashMap<String, AccessToken>();
+	private static final Map<String, Object> TOKEN_CACHE_LOCKS = new ConcurrentHashMap<String, Object>();
 
 	private int timeout;
 	private String accountName;
@@ -127,6 +134,7 @@ public class AzureStorage extends NoneStorage {
 	private String managedIdentityApiVersion;
 	private String managedIdentitySecret;
 	private String apiVersion;
+	private String tokenCacheKey;
 
 	private HttpClient client;
 	private volatile HttpRequestBase currentRequest;
@@ -157,6 +165,7 @@ public class AzureStorage extends NoneStorage {
 		apiVersion = getConfigOrEnv(config, API_VERSION_KEY, API_VERSION_DEFAULT, ENV_API_VERSION);
 
 		validateConfiguration();
+		tokenCacheKey = buildTokenCacheKey();
 
 		parms.put(CONN_TIMEOUT_KEY, timeout);
 		parms.put(AUTH_TYPE_KEY, authType);
@@ -417,40 +426,133 @@ public class AzureStorage extends NoneStorage {
 		}
 	}
 
-	private synchronized AccessToken ensureToken() {
-		if (cachedToken != null && !cachedToken.shouldRefresh()) {
+	private AccessToken ensureToken() {
+		AccessToken token = cachedToken;
+		if (token != null && !token.shouldRefresh()) {
+			return token;
+		}
+
+		if (tokenCacheKey == null || tokenCacheKey.length() == 0) {
+			cachedToken = requestToken();
 			return cachedToken;
 		}
-		if (AUTH_TYPE_SERVICE_PRINCIPAL.equals(authType)) {
-			cachedToken = requestServicePrincipalToken();
-		} else if (AUTH_TYPE_MANAGED_IDENTITY.equals(authType)) {
-			cachedToken = requestManagedIdentityToken();
-		} else if (AUTH_TYPE_AZURE_CLI.equals(authType)) {
-			cachedToken = requestAzureCliToken();
-		} else {
-			throw new StorageException("unsupported azure token auth_type: " + authType);
+
+		token = SHARED_TOKEN_CACHE.get(tokenCacheKey);
+		if (token != null && !token.shouldRefresh()) {
+			cachedToken = token;
+			return token;
 		}
-		return cachedToken;
+
+		Object tokenLock = resolveTokenLock(tokenCacheKey);
+		synchronized (tokenLock) {
+			token = SHARED_TOKEN_CACHE.get(tokenCacheKey);
+			if (token != null && !token.shouldRefresh()) {
+				cachedToken = token;
+				return token;
+			}
+
+			token = requestToken();
+			SHARED_TOKEN_CACHE.put(tokenCacheKey, token);
+			cachedToken = token;
+			return token;
+		}
+	}
+
+	private AccessToken requestToken() {
+		if (AUTH_TYPE_SERVICE_PRINCIPAL.equals(authType)) {
+			return requestServicePrincipalToken();
+		}
+		if (AUTH_TYPE_MANAGED_IDENTITY.equals(authType)) {
+			return requestManagedIdentityToken();
+		}
+		if (AUTH_TYPE_AZURE_CLI.equals(authType)) {
+			return requestAzureCliToken();
+		}
+		throw new StorageException("unsupported azure token auth_type: " + authType);
+	}
+
+	private Object resolveTokenLock(String cacheKey) {
+		Object existing = TOKEN_CACHE_LOCKS.get(cacheKey);
+		if (existing != null) {
+			return existing;
+		}
+		Object created = new Object();
+		Object prior = TOKEN_CACHE_LOCKS.putIfAbsent(cacheKey, created);
+		return prior == null ? created : prior;
+	}
+
+	private String buildTokenCacheKey() {
+		if (AUTH_TYPE_STORAGE_KEY.equals(authType)) {
+			return "";
+		}
+
+		StringBuilder key = new StringBuilder();
+		key.append(authType).append('\n');
+		key.append(tokenResource).append('\n');
+
+		if (AUTH_TYPE_SERVICE_PRINCIPAL.equals(authType)) {
+			key.append(aadEndpoint).append('\n');
+			key.append(tenantId).append('\n');
+			key.append(clientId).append('\n');
+			key.append(clientSecret);
+		} else if (AUTH_TYPE_MANAGED_IDENTITY.equals(authType)) {
+			key.append(managedIdentityEndpoint).append('\n');
+			key.append(managedIdentityApiVersion).append('\n');
+			key.append(clientId).append('\n');
+			key.append(managedIdentitySecret);
+		} else if (AUTH_TYPE_AZURE_CLI.equals(authType)) {
+			key.append(tokenResource);
+		} else {
+			return "";
+		}
+
+		return hashCacheKey(key.toString());
+	}
+
+	private String hashCacheKey(String value) {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			byte[] hashed = digest.digest(value.getBytes("UTF-8"));
+			return new String(Base64.encodeBase64(hashed), "UTF-8");
+		} catch (NoSuchAlgorithmException e) {
+			throw new StorageException(e);
+		} catch (UnsupportedEncodingException e) {
+			throw new StorageException(e);
+		}
 	}
 
 	private AccessToken requestServicePrincipalToken() {
 		String url = aadEndpoint + "/" + tenantId + "/oauth2/token";
-		HttpPost request = HttpClientUtil.makeHttpPost(url);
-		request.setHeader("Content-Type", "application/x-www-form-urlencoded");
 		String body = "grant_type=client_credentials"
 				+ "&client_id=" + HttpClientUtil.encodeURL(clientId)
 				+ "&client_secret=" + HttpClientUtil.encodeURL(clientSecret)
 				+ "&resource=" + HttpClientUtil.encodeURL(tokenResource);
-		try {
-			request.setEntity(new StringEntity(body));
-		} catch (UnsupportedEncodingException e) {
-			throw new StorageException(e);
+		for (int attempt = 1; attempt <= TOKEN_REQUEST_MAX_ATTEMPTS; attempt++) {
+			try {
+				HttpPost request = HttpClientUtil.makeHttpPost(url);
+				request.setHeader("Content-Type", "application/x-www-form-urlencoded");
+				request.setEntity(new StringEntity(body));
+				HttpResponse response = execute(request);
+				TokenResponse tokenResponse = readTokenResponse(response, url);
+				if (!tokenResponse.success && shouldRetryTokenStatus(tokenResponse.statusCode)
+						&& attempt < TOKEN_REQUEST_MAX_ATTEMPTS) {
+					logTokenRetry(url, attempt, tokenResponse.statusCode, tokenResponse.payload);
+					sleepBeforeTokenRetry(attempt);
+					continue;
+				}
+				ensureTokenResponse(tokenResponse, url);
+				return parseAccessToken(tokenResponse.payload);
+			} catch (UnsupportedEncodingException e) {
+				throw new StorageException(e);
+			} catch (StorageException e) {
+				if (!shouldRetryTokenException(e) || attempt >= TOKEN_REQUEST_MAX_ATTEMPTS) {
+					throw e;
+				}
+				logTokenRetry(url, attempt, -1, e.getMessage());
+				sleepBeforeTokenRetry(attempt);
+			}
 		}
-
-		HttpResponse response = execute(request);
-		ensureTokenStatus(response, url);
-		String payload = readEntityQuietly(response.getEntity());
-		return parseAccessToken(payload);
+		throw new StorageException("azure token request exhausted retries for " + url);
 	}
 
 	private AccessToken requestManagedIdentityToken() {
@@ -466,31 +568,118 @@ public class AzureStorage extends NoneStorage {
 			url.append("&client_id=").append(HttpClientUtil.encodeURL(clientId));
 		}
 
-		HttpGet request = HttpClientUtil.makeHttpGet(url.toString());
-		request.setHeader("Metadata", "true");
-		if (managedIdentitySecret.length() > 0) {
-			request.setHeader("Secret", managedIdentitySecret);
-		}
+		String requestUrl = url.toString();
+		for (int attempt = 1; attempt <= TOKEN_REQUEST_MAX_ATTEMPTS; attempt++) {
+			try {
+				HttpGet request = HttpClientUtil.makeHttpGet(requestUrl);
+				request.setHeader("Metadata", "true");
+				if (managedIdentitySecret.length() > 0) {
+					request.setHeader("Secret", managedIdentitySecret);
+				}
 
-		HttpResponse response = execute(request);
-		ensureTokenStatus(response, url.toString());
-		String payload = readEntityQuietly(response.getEntity());
-		return parseAccessToken(payload);
+				HttpResponse response = execute(request);
+				TokenResponse tokenResponse = readTokenResponse(response, requestUrl);
+				if (!tokenResponse.success && shouldRetryTokenStatus(tokenResponse.statusCode)
+						&& attempt < TOKEN_REQUEST_MAX_ATTEMPTS) {
+					logTokenRetry(requestUrl, attempt, tokenResponse.statusCode, tokenResponse.payload);
+					sleepBeforeTokenRetry(attempt);
+					continue;
+				}
+				ensureTokenResponse(tokenResponse, requestUrl);
+				return parseAccessToken(tokenResponse.payload);
+			} catch (StorageException e) {
+				if (!shouldRetryTokenException(e) || attempt >= TOKEN_REQUEST_MAX_ATTEMPTS) {
+					throw e;
+				}
+				logTokenRetry(requestUrl, attempt, -1, e.getMessage());
+				sleepBeforeTokenRetry(attempt);
+			}
+		}
+		throw new StorageException("azure token request exhausted retries for " + requestUrl);
 	}
 
 	private AccessToken requestAzureCliToken() {
 		String[] command = new String[] { "az", "account", "get-access-token", "--resource", tokenResource, "--output", "json" };
-		String payload = runCommand(command, resolveAzureCliTimeout());
-		return parseAccessToken(payload);
+		for (int attempt = 1; attempt <= TOKEN_REQUEST_MAX_ATTEMPTS; attempt++) {
+			try {
+				String payload = runCommand(command, resolveAzureCliTimeout());
+				return parseAccessToken(payload);
+			} catch (StorageException e) {
+				if (!shouldRetryTokenException(e) || attempt >= TOKEN_REQUEST_MAX_ATTEMPTS) {
+					throw e;
+				}
+				logTokenRetry("azure-cli", attempt, -1, e.getMessage());
+				sleepBeforeTokenRetry(attempt);
+			}
+		}
+		throw new StorageException("azure cli token request exhausted retries");
 	}
 
-	private void ensureTokenStatus(HttpResponse response, String url) {
+	private TokenResponse readTokenResponse(HttpResponse response, String url) {
 		int actual = response.getStatusLine().getStatusCode();
-		if (actual == HttpStatus.SC_OK) {
+		String body = readEntityQuietly(response.getEntity());
+		return new TokenResponse(actual == HttpStatus.SC_OK, actual, body);
+	}
+
+	private void ensureTokenResponse(TokenResponse response, String url) {
+		if (response.success) {
 			return;
 		}
-		String body = readEntityQuietly(response.getEntity());
-		throw new StorageException("azure token request failed for " + url + " with status " + actual + ": " + body);
+		throw new StorageException("azure token request failed for " + url + " with status " + response.statusCode + ": " + response.payload);
+	}
+
+	private boolean shouldRetryTokenStatus(int statusCode) {
+		return statusCode == HttpStatus.SC_REQUEST_TIMEOUT || statusCode == 429 || statusCode == HttpStatus.SC_INTERNAL_SERVER_ERROR
+				|| statusCode == HttpStatus.SC_BAD_GATEWAY || statusCode == HttpStatus.SC_SERVICE_UNAVAILABLE
+				|| statusCode == HttpStatus.SC_GATEWAY_TIMEOUT;
+	}
+
+	private boolean shouldRetryTokenException(Throwable error) {
+		Throwable current = error;
+		while (current != null) {
+			if (current instanceof java.net.SocketException || current instanceof java.net.SocketTimeoutException
+					|| current instanceof java.net.ConnectException || current instanceof org.apache.http.NoHttpResponseException) {
+				return true;
+			}
+			current = current.getCause();
+		}
+		return false;
+	}
+
+	private void sleepBeforeTokenRetry(int attempt) {
+		long delay = TOKEN_RETRY_BASE_DELAY_MILLIS * (1L << Math.max(0, attempt - 1));
+		if (delay > TOKEN_RETRY_MAX_DELAY_MILLIS) {
+			delay = TOKEN_RETRY_MAX_DELAY_MILLIS;
+		}
+		try {
+			Thread.sleep(delay);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new StorageException("interrupted while waiting to retry azure token request", e);
+		}
+	}
+
+	private void logTokenRetry(String target, int attempt, int statusCode, String detail) {
+		if (logger == null) {
+			return;
+		}
+		if (statusCode > 0) {
+			logger.warn("azure token request retry {}/{} for {} after status {}: {}",
+					new Object[] { Integer.valueOf(attempt), Integer.valueOf(TOKEN_REQUEST_MAX_ATTEMPTS), target,
+							Integer.valueOf(statusCode), safeLogMessage(detail) });
+			return;
+		}
+		logger.warn("azure token request retry {}/{} for {} after transient error: {}",
+				new Object[] { Integer.valueOf(attempt), Integer.valueOf(TOKEN_REQUEST_MAX_ATTEMPTS), target,
+						safeLogMessage(detail) });
+	}
+
+	private String safeLogMessage(String detail) {
+		if (detail == null || detail.length() == 0) {
+			return "n/a";
+		}
+		String sanitized = detail.replace('\n', ' ').replace('\r', ' ');
+		return sanitized.length() <= 200 ? sanitized : sanitized.substring(0, 200);
 	}
 
 	private AccessToken parseAccessToken(String payload) {
@@ -910,6 +1099,18 @@ public class AzureStorage extends NoneStorage {
 
 		private boolean shouldRefresh() {
 			return System.currentTimeMillis() + TOKEN_REFRESH_SKEW_MILLIS >= expiresOnMillis;
+		}
+	}
+
+	private static class TokenResponse {
+		private final boolean success;
+		private final int statusCode;
+		private final String payload;
+
+		private TokenResponse(boolean success, int statusCode, String payload) {
+			this.success = success;
+			this.statusCode = statusCode;
+			this.payload = payload;
 		}
 	}
 }
