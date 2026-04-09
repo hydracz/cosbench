@@ -13,6 +13,8 @@ log/
 start
 stop
 
+dist/osgi/plugins/cosbench-*
+
 # Package Files #
 /0.3.0.10
 /0.3.0.8
