@@ -25,6 +25,8 @@ import javax.servlet.http.*;
 import org.apache.commons.io.IOUtils;
 import org.springframework.web.servlet.*;
 
+import com.intel.cosbench.exporter.Exporters;
+import com.intel.cosbench.exporter.LogExporter;
 import com.intel.cosbench.model.WorkloadInfo;
 
 public class DownloadLogController extends WorkloadPageController {
@@ -42,22 +44,36 @@ public class DownloadLogController extends WorkloadPageController {
         public void render(Map<String, ?> model, HttpServletRequest req,
                 HttpServletResponse res) throws Exception {
             File log = (File) model.get("log");
-            res.setHeader("Content-Length", String.valueOf(log.length()));
             res.setHeader("Content-Disposition",
                     "attachment; filename=\"workload-log.txt\"");
-            FileInputStream input = new FileInputStream(log);
-            try {
-                IOUtils.copyLarge(input, res.getOutputStream());
-            } finally {
-                IOUtils.closeQuietly(input);
+
+            if (log != null && log.exists()) {
+                res.setHeader("Content-Length", String.valueOf(log.length()));
+                FileInputStream input = new FileInputStream(log);
+                try {
+                    IOUtils.copyLarge(input, res.getOutputStream());
+                } finally {
+                    IOUtils.closeQuietly(input);
+                }
+                return;
             }
+
+            WorkloadInfo info = (WorkloadInfo) model.get("info");
+            StringWriter writer = new StringWriter();
+            LogExporter exporter = Exporters.newLogExporter(info);
+            exporter.export(writer);
+            String logText = writer.toString();
+            res.setHeader("Content-Length", String.valueOf(logText.length()));
+            IOUtils.write(logText, res.getOutputStream());
         }
 
     }
 
     protected ModelAndView process(WorkloadInfo info) {
         File file = controller.getWorkloadLog(info);
-        return new ModelAndView(LOG, "log", file);
+        ModelAndView model = new ModelAndView(LOG, "log", file);
+        model.addObject("info", info);
+        return model;
     }
 
 }

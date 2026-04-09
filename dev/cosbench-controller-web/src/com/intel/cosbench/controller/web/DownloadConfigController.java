@@ -25,6 +25,8 @@ import javax.servlet.http.*;
 import org.apache.commons.io.IOUtils;
 import org.springframework.web.servlet.*;
 
+import com.intel.cosbench.config.WorkloadWriter;
+import com.intel.cosbench.config.castor.CastorConfigTools;
 import com.intel.cosbench.model.WorkloadInfo;
 
 public class DownloadConfigController extends WorkloadPageController {
@@ -42,22 +44,34 @@ public class DownloadConfigController extends WorkloadPageController {
         public void render(Map<String, ?> model, HttpServletRequest req,
                 HttpServletResponse res) throws Exception {
             File config = (File) model.get("config");
-            res.setHeader("Content-Length", String.valueOf(config.length()));
             res.setHeader("Content-Disposition",
                     "attachment; filename=\"workload-config.xml\"");
-            FileInputStream input = new FileInputStream(config);
-            try {
-                IOUtils.copyLarge(input, res.getOutputStream());
-            } finally {
-                IOUtils.closeQuietly(input);
+
+            if (config != null && config.exists()) {
+                res.setHeader("Content-Length", String.valueOf(config.length()));
+                FileInputStream input = new FileInputStream(config);
+                try {
+                    IOUtils.copyLarge(input, res.getOutputStream());
+                } finally {
+                    IOUtils.closeQuietly(input);
+                }
+                return;
             }
+
+            WorkloadInfo info = (WorkloadInfo) model.get("info");
+            WorkloadWriter writer = CastorConfigTools.getWorkloadWriter();
+            String xml = writer.toXmlString(info.getWorkload());
+            res.setHeader("Content-Length", String.valueOf(xml.length()));
+            IOUtils.write(xml, res.getOutputStream());
         }
 
     }
 
     protected ModelAndView process(WorkloadInfo info) {
         File file = controller.getWorkloadConfig(info);
-        return new ModelAndView(CONFIG, "config", file);
+        ModelAndView model = new ModelAndView(CONFIG, "config", file);
+        model.addObject("info", info);
+        return model;
     }
 
 }
