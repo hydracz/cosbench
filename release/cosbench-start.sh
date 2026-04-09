@@ -38,6 +38,7 @@ SERVICE_CONFIG="$SCRIPT_DIR/conf/$SERVICE_NAME.conf"
 
 TOOL="nc"
 TOOL_PARAMS="-i 0"
+TOOL_HOST="127.0.0.1"
 TOOL_TIMEOUT=""
 STOP_SCRIPT="$SCRIPT_DIR/stop-$SERVICE_NAME.sh"
 JAVA_MAJOR=`java -version 2>&1 | awk -F[\".] '/version/ { if ($2 == "1") print $3; else print $2; exit }'`
@@ -65,6 +66,16 @@ fi
 if command -v timeout >/dev/null 2>&1; then
         TOOL_TIMEOUT="timeout 5"
 fi
+
+if $TOOL -h 2>&1 | grep -qi 'ncat'; then
+        TOOL_PARAMS="-w 2"
+fi
+
+probe_bundle() {
+        bundle_name=$1
+        probe_output=$(printf 'ss\r\n' | $TOOL_TIMEOUT $TOOL $TOOL_PARAMS $TOOL_HOST $OSGI_CONSOLE_PORT 2>/dev/null || true)
+        printf '%s\n' "$probe_output" | grep -q "$bundle_name"
+}
 
 #-------------------------------
 
@@ -184,8 +195,7 @@ do
         attempts=60
         while [ $ready -ne 1 ];
         do
-		printf 'ss\n' | $TOOL_TIMEOUT $TOOL $TOOL_PARAMS 0.0.0.0 $OSGI_CONSOLE_PORT 2>/dev/null | grep "$bundle_name" >> /dev/null
-                if [ $? -ne 0 ];
+		if ! probe_bundle "$bundle_name";
                 then
                         attempts=`expr $attempts - 1`
                         if [ $attempts -eq 0 ];
